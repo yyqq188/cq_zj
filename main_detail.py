@@ -22,15 +22,19 @@ class Process(threading.Thread):
         # self.break_status = "iscookie"
         self.proxy = proxy
         #初始化redis连接
-        pool = redis.ConnectionPool(host=redis_config['host'], port=redis_config['port'])
+        pool = redis.ConnectionPool(host=redis_config['host'], port=redis_config['port'],
+                                    password=redis_config['password'])
         self.r = redis.Redis(connection_pool=pool)
-        #初始化一个mysql连接
-        self.mysql_db = MySQLdb.connect(mysql_config['host'], mysql_config['user'], mysql_config['passwd'],
-                                        mysql_config['db'])
-        self.mysql_db.set_character_set('utf8')
-        self.mysql_db.cursor().execute('SET NAMES utf8;')
-        self.mysql_db.cursor().execute('SET CHARACTER SET utf8;')
-        self.mysql_db.cursor().execute('SET character_set_connection=utf8;')
+        # #初始化一个mysql连接
+        #
+        # self.mysql_db = MySQLdb.connect(host=mysql_config['host'], user=mysql_config['user'], passwd=mysql_config['passwd'],
+        #                                 port=mysql_config['port'],
+        #                                 db=mysql_config['db'])
+        #
+        # self.mysql_db.set_character_set('utf8')
+        # self.mysql_db.cursor().execute('SET NAMES utf8;')
+        # self.mysql_db.cursor().execute('SET CHARACTER SET utf8;')
+        # self.mysql_db.cursor().execute('SET character_set_connection=utf8;')
 
 
 
@@ -45,40 +49,53 @@ class Process(threading.Thread):
                         "User-Agent": random.choice(user_agent),
                     }
                     proxies = {'http': self.proxy, 'https': self.proxy}
-                    enterprise_id = self.r.lrange(redis_config["etp_id"],0,1)[0]
+                    enterprise_id_name = bytes.decode(self.r.rpop(redis_config["etp_id"]))
 
+                    enterprise_id = enterprise_id_name.split("##")[0]
+                    enterprise_name = enterprise_id_name.split("##")[1]
                     response = requests.get(
-                        'https://www.qichacha.com/firm_{}'.format(bytes.decode(enterprise_id)),
+                        'https://www.qichacha.com/firm_{}'.format(enterprise_id),
                         proxies=proxies, verify=False,
                         headers=headers)
 
 
                     content = response.text
+
                     if "index_verify" in content or "公司不存在" in content:
                         break
                     fields = self.parse_detail(content)
-                    print(fields)
-                    insert_sql = """insert into {}(
-                                    Corporate_name,Representative,zczb,sjzb,jyzt,
-                                    clrq,tyshxydm,nsrsbh,zch,zzjgdm,
-                                    qylx,sshy,hzrq,djjg,ssdq,
-                                    ywm,cym,cbrs,rygm,yyqx,
-                                    qydz,jyfw) values
-                                    ('{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}',
-                                    '{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}')
 
-                                                    """.format(mysql_config["table"],
-                        fields[0], fields[1], fields[2], fields[3], fields[4], fields[5], fields[6], fields[7],
-                        fields[8], fields[9],
-                        fields[10], fields[11], fields[12], fields[13], fields[14], fields[15], fields[16], fields[17],
-                        fields[18], fields[19],
-                        fields[20], fields[21]
-                    )
 
-                    # 放入mysql
-                    print(insert_sql)
-                    self.mysql_db.cursor().execute(insert_sql)
-                    self.mysql_db.commit()
+
+                    fields = "####".join(fields)
+                    fields = enterprise_name +"#@@#"+fields
+
+                    self.r.lpush(redis_config['fields'], fields)
+                    #
+                    #
+                    #
+                    # # print(fields)
+                    # insert_sql = """insert into {}(enterprise_name,
+                    #                 Corporate_name,Representative,zczb,sjzb,jyzt,
+                    #                 clrq,tyshxydm,nsrsbh,zch,zzjgdm,
+                    #                 qylx,sshy,hzrq,djjg,ssdq,
+                    #                 ywm,cym,cbrs,rygm,yyqx,
+                    #                 qydz,jyfw) values
+                    #                 ('{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}',
+                    #                 '{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}')
+                    #
+                    #                                 """.format(mysql_config["table"],enterprise_name,
+                    #     fields[0], fields[1], fields[2], fields[3], fields[4], fields[5], fields[6], fields[7],
+                    #     fields[8], fields[9],
+                    #     fields[10], fields[11], fields[12], fields[13], fields[14], fields[15], fields[16], fields[17],
+                    #     fields[18], fields[19],
+                    #     fields[20], fields[21]
+                    # )
+                    #
+                    # # 放入mysql
+                    # # print(insert_sql)
+                    # self.mysql_db.cursor().execute(insert_sql)
+                    # self.mysql_db.commit()
 
                 except:
 

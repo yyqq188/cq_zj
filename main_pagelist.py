@@ -10,6 +10,7 @@ import redis
 import time
 import random
 import re
+from scrapy import Selector
 
 from qichacha_zhejiang.settings import redis_config,user_agent,proxy_servers
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -21,7 +22,8 @@ class Process(threading.Thread):
         self.break_status = "iscookie"
         self.proxy = proxy
         #初始化redis连接
-        pool = redis.ConnectionPool(host=redis_config['host'], port=redis_config['port'])
+        pool = redis.ConnectionPool(host=redis_config['host'], port=redis_config['port'],
+                                    password=redis_config['password'])
         self.r = redis.Redis(connection_pool=pool)
 
 
@@ -31,7 +33,6 @@ class Process(threading.Thread):
     def run(self):
 
         while True:
-            # print("restartttttt")
             if "iscookie" in self.break_status:
                 # 获得一个新的cookie  从左边取 不删除
                 cookie = self.r.lrange(redis_config['cookies'],0,1)[0]
@@ -49,13 +50,13 @@ class Process(threading.Thread):
                     }
                     proxies = {'http': self.proxy, 'https': self.proxy}
 
-                    print(bytes.decode(cookie))
-                    print(random.choice(user_agent))
-                    print(proxies)
+                    # print(bytes.decode(cookie))
+                    # print(random.choice(user_agent))
+                    # print(proxies)
                     enterprise_name = self.r.rpop(redis_config['etp_name'])
-
+                    enterprise_name = bytes.decode(enterprise_name)
                     response = requests.get(
-                        'https://www.qichacha.com/search?key={}'.format(bytes.decode(enterprise_name)),
+                        'https://www.qichacha.com/search?key={}'.format(enterprise_name),
                         proxies=proxies, verify=False,
                         headers=headers)
                     # print(bytes.decode(enterprise_name))
@@ -65,14 +66,16 @@ class Process(threading.Thread):
                         break
 
                     content = response.text
-                    print(content)
+                    # print(content)
                     if "小查为您找到" not in content:
                         self.break_status = "isproxy"
                         break
 
 
                     enterprise_id = self.parse_listpage(content)
-                    self.r.lpush(redis_config["etp_id"],enterprise_id)
+                    #加上enterprise_id 和 enterprise_name
+                    if enterprise_id:
+                        self.r.lpush(redis_config["etp_id"],enterprise_id+"##"+enterprise_name)
 
                 except Exception as e:
                     print(e)
@@ -82,15 +85,22 @@ class Process(threading.Thread):
 
 
     def parse_listpage(self,content):
-        #取第一个就是
-        enterprise_id = re.findall("(href=\"/firm_.*?html)", content)[0]
-        #href="/firm_9cce0780ab7644008b73bc2120479d31.html
-        enterprise_id = enterprise_id.split("_")[1].split("\.")[0]
-        print(enterprise_id)
+        # #取第一个就是
+        # enterprise_id = re.findall("(href=\"/firm_.*?html)", content)[0]
+        # #href="/firm_9cce0780ab7644008b73bc2120479d31.html
+        # enterprise_id = enterprise_id.split("_")[1].split("\.")[0]
+        # # print(enterprise_id)
+        # return enterprise_id
+
+        content = Selector(text=content)
+        content = content.css("#search-result >tr:nth-child(1)>td:nth-child(3)>a ::attr(href)").extract()
+        if len(content) == 1:
+            enterprise_id = content[0].split("_")[1]
+
+        else:
+            enterprise_id = ''
+
         return enterprise_id
-
-
-
 
 if __name__ == '__main__':
 

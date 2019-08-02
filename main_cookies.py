@@ -9,7 +9,8 @@ import time
 
 class Cookie_Process(object):
     def __init__(self):
-        pool = redis.ConnectionPool(host=redis_config['host'],port=redis_config['port'])
+        pool = redis.ConnectionPool(host=redis_config['host'],port=redis_config['port'],
+                                    password=redis_config['password'])
         self.r = redis.Redis(connection_pool=pool)
 
         chrome_options = webdriver.ChromeOptions()
@@ -34,10 +35,10 @@ class Cookie_Process(object):
         self.client.get("https://www.baidu.com/s?wd=企查查")
 
         self.client.find_elements_by_xpath("//input[@value='百度一下']")[0].click()
-        time.sleep(1.5)
+        time.sleep(3)
 
         self.client.find_element_by_xpath("//div[@class='result c-container 'and @id='1']//a[1]").click()
-        time.sleep(1.5)
+        time.sleep(3)
 
         print("change to new window")
         all_windows = self.client.window_handles
@@ -47,7 +48,7 @@ class Cookie_Process(object):
 
 
         self.client.refresh()
-        time.sleep(1.5)
+        time.sleep(3)
         kvs = []
         for e in self.client.get_cookies():
             kv = e['name']+"="+e['value']
@@ -57,7 +58,7 @@ class Cookie_Process(object):
         print(current_cookie)
         #把生成的cookie推送到reids中
         self.r.lpush(redis_config['cookies'],current_cookie)
-        
+
         import hashlib
         hexdigest_str = hashlib.sha1(current_cookie.encode()).hexdigest()
         print("----- ",hexdigest_str)
