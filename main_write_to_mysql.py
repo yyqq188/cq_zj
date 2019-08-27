@@ -26,49 +26,55 @@ class WriteToMysql(object):
 
 
     def write_to_mysql(self):
+        # while True:
+
         while True:
-
-            while True:
-                fields = self.r.rpop(redis_config["fields"])
+            fields = self.r.rpop(redis_config["fields"])
 
 
-                if fields:
-                    try:
-                        fields = bytes.decode(fields)
-                        enterprise_name = fields.split("#@@#")[0]
-                        fields = fields.split("#@@#")[1].split("####")
+            if fields:
+                # print(fields)
+                try:
+                    fields = bytes.decode(fields)
+                    enterprise_name = fields.split("#@@#")[0]
+                    fields = fields.split("#@@#")[1].split("####")
 
-                        insert_sql = """insert into {}(enterprise_name,
-                                                            Corporate_name,Representative,zczb,sjzb,jyzt,
-                                                            clrq,tyshxydm,nsrsbh,zch,zzjgdm,
-                                                            qylx,sshy,hzrq,djjg,ssdq,
-                                                            ywm,cym,cbrs,rygm,yyqx,
-                                                            qydz,jyfw) values
-                                                            ('{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}',
-                                                            '{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}')
-        
-                                                                            """.format(mysql_config["table"], enterprise_name,
-                                                                                       fields[0], fields[1], fields[2],
-                                                                                       fields[3], fields[4], fields[5],
-                                                                                       fields[6], fields[7],
-                                                                                       fields[8], fields[9],
-                                                                                       fields[10], fields[11], fields[12],
-                                                                                       fields[13], fields[14], fields[15],
-                                                                                       fields[16], fields[17],
-                                                                                       fields[18], fields[19],
-                                                                                       fields[20], fields[21]
-                                                                                       )
+                    insert_sql = """insert into {}(enterprise_name,
+                                                        Corporate_name,Representative,zczb,sjzb,jyzt,
+                                                        clrq,tyshxydm,nsrsbh,zch,zzjgdm,
+                                                        qylx,sshy,hzrq,djjg,ssdq,
+                                                        ywm,cym,cbrs,rygm,yyqx,
+                                                        qydz,jyfw) values
+                                                        ('{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}',
+                                                        '{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}')
+    
+                                                                        """.format(mysql_config["table"], enterprise_name,
+                                                                                   fields[0], fields[1], fields[2],
+                                                                                   fields[3], fields[4], fields[5],
+                                                                                   fields[6], fields[7],
+                                                                                   fields[8], fields[9],
+                                                                                   fields[10], fields[11], fields[12],
+                                                                                   fields[13], fields[14], fields[15],
+                                                                                   fields[16], fields[17],
+                                                                                   fields[18], fields[19],
+                                                                                   fields[20], fields[21]
+                                                                                   )
 
-                        # 放入mysql
-                        self.mysql_db.cursor().execute(insert_sql)
-                        self.mysql_db.commit()
-                    except:
-                        pass
-                else:
-                    break
+                    # 放入mysql
+                    self.mysql_db.cursor().execute(insert_sql)
+                    self.mysql_db.commit()
+                except:
+                    print(len(fields))
+                    pass
+            else:
+                break
 
 
 
 if __name__ == '__main__':
+    print("开始执行")
     wtm = WriteToMysql()
+
+    # print(wtm)
     wtm.write_to_mysql()
+    print("执行结束")

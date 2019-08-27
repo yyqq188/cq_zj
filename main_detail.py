@@ -10,98 +10,108 @@ import redis
 import time
 import random
 import re
-import MySQLdb
+
 from qichacha_zhejiang.settings import redis_config,user_agent,mysql_config,proxy_servers
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class Process(threading.Thread):
 
-    def __init__(self,proxy):
+    def __init__(self):
         threading.Thread.__init__(self)
         # self.break_status = "iscookie"
-        self.proxy = proxy
         #初始化redis连接
         pool = redis.ConnectionPool(host=redis_config['host'], port=redis_config['port'],
                                     password=redis_config['password'])
         self.r = redis.Redis(connection_pool=pool)
-        # #初始化一个mysql连接
-        #
-        # self.mysql_db = MySQLdb.connect(host=mysql_config['host'], user=mysql_config['user'], passwd=mysql_config['passwd'],
-        #                                 port=mysql_config['port'],
-        #                                 db=mysql_config['db'])
-        #
-        # self.mysql_db.set_character_set('utf8')
-        # self.mysql_db.cursor().execute('SET NAMES utf8;')
-        # self.mysql_db.cursor().execute('SET CHARACTER SET utf8;')
-        # self.mysql_db.cursor().execute('SET character_set_connection=utf8;')
-
+        self.sleep_time = [1.1, 1.3, 1.5, 1, 2, 2.1, 2.3, 2.5, 3.6]
+        self.enterprise_id_name = ""
 
 
 
 
     def run(self):
         while True:
+
+            self.r.set(redis_config['ischangedip'], "change_ip")
+
             while True:
                 try:
-                    time.sleep(1)
+                    time.sleep(random.choice(self.sleep_time))
                     headers = {
                         "User-Agent": random.choice(user_agent),
                     }
-                    proxies = {'http': self.proxy, 'https': self.proxy}
+
+                    # #获得最新的proxy_ip
+                    # proxy_ip = bytes.decode(self.r.mget(redis_config['proxy_pools'])[0])  # 取第一个即可
+                    # proxies = {'http': 'http://'+proxy_ip+':8878',
+                    #            # 'https': self.proxy
+                    #            }
+
+
+
+                    # 获得发送信号后更新后的信息
+                    ischanged_ip = bytes.decode(self.r.get(redis_config["ischangedip"]))
+                    if ischanged_ip == "change_ip":
+                        break
+
+
+                    proxies = {
+                        'http': 'http://127.0.0.1:8123',
+                        'https': 'https://127.0.0.1:8123',
+                    }
+
+
+
                     enterprise_id_name = bytes.decode(self.r.rpop(redis_config["etp_id"]))
+                    self.enterprise_id_name = enterprise_id_name
 
                     enterprise_id = enterprise_id_name.split("##")[0]
                     enterprise_name = enterprise_id_name.split("##")[1]
+
+                    print("1111------", enterprise_name)
                     response = requests.get(
                         'https://www.qichacha.com/firm_{}'.format(enterprise_id),
                         proxies=proxies, verify=False,
                         headers=headers)
 
+                    print("333333333333333333")
+                    print(response.text)
+                    print(response.status_code)
 
                     content = response.text
+                    if response.status_code != 200:
+                        # 再放回去
+                        self.r.lpush(redis_config["etp_id"], enterprise_id_name)
+                        break
 
                     if "index_verify" in content or "公司不存在" in content:
+                        #再放回去
+                        self.r.lpush(redis_config["etp_id"],enterprise_id_name)
                         break
+
                     fields = self.parse_detail(content)
 
 
 
                     fields = "####".join(fields)
+
+                    print("解析到-------" + fields)
+                    print("22222------" + enterprise_name)
+
+
                     fields = enterprise_name +"#@@#"+fields
 
                     self.r.lpush(redis_config['fields'], fields)
-                    #
-                    #
-                    #
-                    # # print(fields)
-                    # insert_sql = """insert into {}(enterprise_name,
-                    #                 Corporate_name,Representative,zczb,sjzb,jyzt,
-                    #                 clrq,tyshxydm,nsrsbh,zch,zzjgdm,
-                    #                 qylx,sshy,hzrq,djjg,ssdq,
-                    #                 ywm,cym,cbrs,rygm,yyqx,
-                    #                 qydz,jyfw) values
-                    #                 ('{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}',
-                    #                 '{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}')
-                    #
-                    #                                 """.format(mysql_config["table"],enterprise_name,
-                    #     fields[0], fields[1], fields[2], fields[3], fields[4], fields[5], fields[6], fields[7],
-                    #     fields[8], fields[9],
-                    #     fields[10], fields[11], fields[12], fields[13], fields[14], fields[15], fields[16], fields[17],
-                    #     fields[18], fields[19],
-                    #     fields[20], fields[21]
-                    # )
-                    #
-                    # # 放入mysql
-                    # # print(insert_sql)
-                    # self.mysql_db.cursor().execute(insert_sql)
-                    # self.mysql_db.commit()
+
 
                 except:
+                    # 再放回去
+                    self.r.lpush(redis_config["etp_id"], self.enterprise_id_name)
 
                     break
 
-            time.sleep(20)
+            time.sleep(10)
 
     def parse_detail(self, content):
 
@@ -195,15 +205,29 @@ class Process(threading.Thread):
         return list_1
 
 
+
 if __name__ == '__main__':
+    my_thread = Process()
+    my_thread.start()
+    my_thread.join()
 
-    proxys = proxy_servers
 
-    threads = []
 
-    for proxy in proxys:
-        my_thread = Process(proxy)
-        my_thread.start()
-        threads.append(my_thread)
-    for i in threads:
-        i.join()
+
+
+
+
+
+
+# if __name__ == '__main__':
+#
+#     proxys = proxy_servers
+#
+#     threads = []
+#
+#     for proxy in proxys:
+#         my_thread = Process(proxy)
+#         my_thread.start()
+#         threads.append(my_thread)
+#     for i in threads:
+#         i.join()

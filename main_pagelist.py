@@ -9,25 +9,23 @@ import urllib3
 import redis
 import time
 import random
-import re
 from scrapy import Selector
 
-from qichacha_zhejiang.settings import redis_config,user_agent,proxy_servers
+from qichacha_zhejiang.settings import redis_config,user_agent
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class Process(threading.Thread):
-    def __init__(self,proxy):
+    def __init__(self):
         threading.Thread.__init__(self)
         self.break_status = "iscookie"
-        self.proxy = proxy
         #初始化redis连接
         pool = redis.ConnectionPool(host=redis_config['host'], port=redis_config['port'],
                                     password=redis_config['password'])
         self.r = redis.Redis(connection_pool=pool)
+        self.sleep_time = [1.1, 1.3, 1.5, 1, 2, 2.1, 2.3, 2.5, 3.6]
 
-
-
+        self.enterprise_name = ""
 
 
     def run(self):
@@ -36,62 +34,94 @@ class Process(threading.Thread):
             if "iscookie" in self.break_status:
                 # 获得一个新的cookie  从左边取 不删除
                 cookie = self.r.lrange(redis_config['cookies'],0,1)[0]
+                self.r.set(redis_config['ischangedip'], "change_ip")
+
             else:
                 # 获得一个新的cookie  从左边取 不删除
-                time.sleep(20)
-                cookie = self.r.lrange(redis_config['cookies'],0,1)[0]
+                cookie = self.r.lrange(redis_config['cookies'], 0, 1)[0]
+
+                # time.sleep(20)
+                #就不是等待时间了，而是发送重新
+                self.r.set(redis_config['ischangedip'],"change_ip")
+
 
             while True:
                 try:
-                    time.sleep(1)
+                    time.sleep(random.choice(self.sleep_time))
                     headers = {
                         "Cookie":bytes.decode(cookie),
+                        # "Cookie":"domain=.globalsign.com;",
                         "User-Agent": random.choice(user_agent),
                     }
-                    proxies = {'http': self.proxy, 'https': self.proxy}
+                    # # 获得最新的proxy_ip
+                    # proxy_ip = bytes.decode(self.r.mget(redis_config['proxy_pools'])[0])  # 取第一个即可
+                    # proxies = {'http': 'http://'+proxy_ip+':8878',
+                    #            # 'https': self.proxy
+                    #            }
 
-                    # print(bytes.decode(cookie))
-                    # print(random.choice(user_agent))
-                    # print(proxies)
-                    enterprise_name = self.r.rpop(redis_config['etp_name'])
-                    enterprise_name = bytes.decode(enterprise_name)
-                    response = requests.get(
-                        'https://www.qichacha.com/search?key={}'.format(enterprise_name),
-                        proxies=proxies, verify=False,
-                        headers=headers)
-                    # print(bytes.decode(enterprise_name))
 
-                    if response.status_code != 200:
-                        self.break_status = "iscookie"
-                        break
+                    #获得发送信号后更新后的信息
+                    ischanged_ip = bytes.decode(self.r.get(redis_config["ischangedip"]))
+                    if ischanged_ip == "change_ip":
 
-                    content = response.text
-                    # print(content)
-                    if "小查为您找到" not in content:
                         self.break_status = "isproxy"
                         break
 
 
+
+
+
+                    proxies = {
+                        'http': 'http://127.0.0.1:8123',
+                        'https': 'https://127.0.0.1:8123',
+                    }
+
+
+
+                    enterprise_name = self.r.rpop(redis_config['etp_name'])
+                    enterprise_name = bytes.decode(enterprise_name)
+                    self.enterprise_name = enterprise_name
+                    print("1111------", enterprise_name)
+                    response = requests.get(
+                        'https://www.qichacha.com/search?key={}'.format(enterprise_name),
+                        proxies=proxies, verify=False,
+                        headers=headers,timeout=5)
+                    print("333333333333333333")
+                    print(response.text)
+                    print(response.status_code)
+                    if response.status_code != 200:
+                        #再放回去
+                        self.r.lpush(redis_config['etp_name'],enterprise_name)
+                        self.break_status = "iscookie"
+                        break
+
+                    content = response.text
+
+                    if "小查为您找到" not in content:
+                        # 再放回去
+                        self.r.lpush(redis_config['etp_name'], enterprise_name)
+                        self.break_status = "isproxy"
+                        break
+
+
+
                     enterprise_id = self.parse_listpage(content)
+                    print("解析到-------"+enterprise_id)
+                    print("22222------" + enterprise_name)
                     #加上enterprise_id 和 enterprise_name
                     if enterprise_id:
                         self.r.lpush(redis_config["etp_id"],enterprise_id+"##"+enterprise_name)
 
                 except Exception as e:
-                    print(e)
+                    # # 再放回去   #这里要给个全局变量
+                    self.r.lpush(redis_config['etp_name'], self.enterprise_name)
                     self.break_status = "isproxy"
                     break
 
 
 
     def parse_listpage(self,content):
-        # #取第一个就是
-        # enterprise_id = re.findall("(href=\"/firm_.*?html)", content)[0]
-        # #href="/firm_9cce0780ab7644008b73bc2120479d31.html
-        # enterprise_id = enterprise_id.split("_")[1].split("\.")[0]
-        # # print(enterprise_id)
-        # return enterprise_id
-
+        print(content)
         content = Selector(text=content)
         content = content.css("#search-result >tr:nth-child(1)>td:nth-child(3)>a ::attr(href)").extract()
         if len(content) == 1:
@@ -103,14 +133,17 @@ class Process(threading.Thread):
         return enterprise_id
 
 if __name__ == '__main__':
+    my_thread = Process()
+    my_thread.start()
+    my_thread.join()
 
-    proxys = proxy_servers
-
-    threads = []
-
-    for proxy in proxys:
-        my_thread = Process(proxy)
-        my_thread.start()
-        threads.append(my_thread)
-    for i in threads:
-        i.join()
+    # proxys = proxy_servers
+    #
+    # threads = []
+    #
+    # for proxy in proxys:
+    #     my_thread = Process(proxy)
+    #     my_thread.start()
+    #     threads.append(my_thread)
+    # for i in threads:
+    #     i.join()
